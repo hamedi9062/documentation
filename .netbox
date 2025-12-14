@@ -2,3 +2,7 @@
 sudo su
 apt update
 apt upgrade
+#install postgresql server and client development libraries
+apt install -y postgresql libpq-dev
+#now a database called netbox will be created, a user netbox with password P@ssw0rd and all permissions granted for the user.
+sudo -u postgres psql
