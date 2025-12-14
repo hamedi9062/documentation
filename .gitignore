@@ -1,0 +1,4 @@
+#how to install netbox on ubuntu server
+sudo su
+apt update
+apt upgrade
