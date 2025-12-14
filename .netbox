@@ -1,8 +1,70 @@
-#how to install netbox on ubuntu server
+# how to install netbox on ubuntu server
 sudo su
 apt update
 apt upgrade
-#install postgresql server and client development libraries
+# install postgresql server and client development libraries
 apt install -y postgresql libpq-dev
-#now a database called netbox will be created, a user netbox with password P@ssw0rd and all permissions granted for the user.
+# now a database called netbox will be created, a user netbox with password P@ssw0rd and all permissions granted for the user.
 sudo -u postgres psql
+create database netbox;
+# CREATE DATABASE
+create user netbox with password 'P@ssw0rd';
+# CREATE ROLE
+grant all privileges on database netbox to netbox;
+# GRANT
+\q # to exit
+# make a test connetction to the database
+psql --username netbox --password --host localhost netbox
+# pass needed
+\q # to exit
+# install redis instance
+apt install -y redis-server
+#  test if redis service is functioning properly
+redis-cli ping
+# should see pong
+# Begin by installing all system packages required by NetBox and its dependencies
+apt install -y python3 python3-pip python3-venv python3-dev build-essential libxml2-dev libxslt1-dev libffi-dev libpq-dev libssl-dev zlib1g-dev
+# If git is not already installed
+sudo apt install -y git
+# Create the base directory 
+sudo mkdir -p /opt/netbox
+cd /opt/netbox/
+# clone the git repository
+sudo git clone https://github.com/netbox-community/netbox.git .
+# Create a system user account named netbox
+sudo adduser --system --group netbox
+sudo chown --recursive netbox /opt/netbox/netbox/media/
+sudo chown --recursive netbox /opt/netbox/netbox/reports/
+sudo chown --recursive netbox /opt/netbox/netbox/scripts/
+# Configuration
+cd /opt/netbox/netbox/netbox/
+sudo cp configuration_example.py configuration.py
+apt install vim
+configuration.py
+# edit like this:
+ALLOWED_HOSTS = ['*']
+DATABASES = {
+    'default': {
+        'NAME': 'netbox',               # Database name
+        'USER': 'netbox',               # PostgreSQL username
+        'PASSWORD': 'P@ssw0rd', # PostgreSQL password
+        'HOST': 'localhost',            # Database server
+        'PORT': '',                     # Database port (leave blank for default)
+        'CONN_MAX_AGE': 300,            # Max database connection age (seconds)
+    }
+}
+:wq!
+# SECRET_KEY
+cd /opt/netbox/netbox
+python3 ../generate_secret_key.py
+# copy to Configuration.py in SECRET_KEY
+# add napalm to requirements.txt
+vi requirements.txt
+# Run the Upgrade Script
+
+
+
+
+
+
+
