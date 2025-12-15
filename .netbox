@@ -1,69 +1,180 @@
-# how to install netbox on ubuntu server
+# The installation instructions provided here have been 
+# tested to work on Ubuntu 22.04 but om using ubuntu-24.04.3-live-server-amd64
+# The following sections detail how to set up a new instance of NetBox:
+# PostgreSQL database
+# Redis
+# NetBox components
+# Gunicorn or uWSGI
+# HTTP server
+# LDAP authentication (optional)
+# Requirements: Python	3.10, 3.11, 3.12 - PostgreSQL	14+ - Redis	4.0+
 sudo su
 apt update
+apt list --upgradable
 apt upgrade
-# install postgresql server and client development libraries
-apt install -y postgresql libpq-dev
-# now a database called netbox will be created, a user netbox with password P@ssw0rd and all permissions granted for the user.
-sudo -u postgres psql
-create database netbox;
-# CREATE DATABASE
-create user netbox with password 'P@ssw0rd';
-# CREATE ROLE
-grant all privileges on database netbox to netbox;
-# GRANT
-\q # to exit
-# make a test connetction to the database
-psql --username netbox --password --host localhost netbox
-# pass needed
-\q # to exit
-# install redis instance
-apt install -y redis-server
-#  test if redis service is functioning properly
-redis-cli ping
-# should see pong
-# Begin by installing all system packages required by NetBox and its dependencies
-apt install -y python3 python3-pip python3-venv python3-dev build-essential libxml2-dev libxslt1-dev libffi-dev libpq-dev libssl-dev zlib1g-dev
-# If git is not already installed
-sudo apt install -y git
-# Create the base directory 
-sudo mkdir -p /opt/netbox
+# NetBox requires PostgreSQL 14 or later. Please note that MySQL and other relational databases are not supported.
+sudo apt install -y postgresql
+psql -V # psql (PostgreSQL) 16.11 (Ubuntu 16.11-0ubuntu0.24.04.1)
+# Database Creation
+CREATE DATABASE netbox;
+CREATE USER netbox WITH PASSWORD 'password';
+ALTER DATABASE netbox OWNER TO netbox;
+-- the next two commands are needed on PostgreSQL 15 and later
+\connect netbox;
+GRANT CREATE ON SCHEMA public TO netbox;
+# enter \q to exit the PostgreSQL shell.
+# Verify Service Status
+$ psql --username netbox --password --host localhost netbox
+# Password for user netbox: 
+# psql (12.5 (Ubuntu 12.5-0ubuntu0.20.04.1))
+# SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, bits: 256, compression: off)
+Type "help" for help.
+netbox=> \conninfo
+# You are connected to database "netbox" as user "netbox" on host "localhost" (address "127.0.0.1") at port "5432".
+# SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, bits: 256, compression: off)
+# enter \q to exit the PostgreSQL shell.
+@ Redis Installation
+sudo apt install -y redis-server
+# verify that your installed version of Redis is at least v4.0
+redis-server -v
+# Redis server v=7.0.15 sha=00000000:0 malloc=jemalloc-5.3.0 bits=64 build=62c7a5d52c72f4cd
+# Verify Service Status
+redis-cli ping # If successful, you should receive a PONG response from the server.
+# NetBox Installation
+# Install System Packages
+sudo apt install -y python3 python3-pip python3-venv python3-dev build-essential libxml2-dev libxslt1-dev libffi-dev libpq-dev libssl-dev zlib1g-dev
+python3 -V  # Before continuing, check that your installed Python version is at least 3.10:
+# Download NetBox
+sudo mkdir -p /opt/netbox/
 cd /opt/netbox/
-# clone the git repository
+# If git is not already installed, install it
+sudo apt install -y git
 sudo git clone https://github.com/netbox-community/netbox.git .
-# Create a system user account named netbox
+# Finally, check out the tag for the desired release. You can find these on netbox.om/releases page. Replace vX.Y.Z with your selected release tag below.
+sudo git checkout vX.Y.Z
+# Create a system user account named netbox. We'll configure the WSGI and HTTP services to run under this account. We'll also assign this user ownership of the media directory. This ensures that NetBox will be able to save uploaded files.
 sudo adduser --system --group netbox
 sudo chown --recursive netbox /opt/netbox/netbox/media/
 sudo chown --recursive netbox /opt/netbox/netbox/reports/
 sudo chown --recursive netbox /opt/netbox/netbox/scripts/
-# Configuration
+# Move into the NetBox configuration directory and make a copy of configuration_example.py named configuration.py. This file will hold all of your local configuration parameters.
 cd /opt/netbox/netbox/netbox/
 sudo cp configuration_example.py configuration.py
 apt install vim
-configuration.py
-# edit like this:
+sudo vi configuration.py # apply these:
 ALLOWED_HOSTS = ['*']
 DATABASES = {
     'default': {
         'NAME': 'netbox',               # Database name
         'USER': 'netbox',               # PostgreSQL username
-        'PASSWORD': 'P@ssw0rd', # PostgreSQL password
+        'PASSWORD': 'J5brHrAXFLQSif0K', # PostgreSQL password
         'HOST': 'localhost',            # Database server
         'PORT': '',                     # Database port (leave blank for default)
         'CONN_MAX_AGE': 300,            # Max database connection age (seconds)
     }
 }
-:wq!
-# SECRET_KEY
-cd /opt/netbox/netbox
+# A simple Python script named generate_secret_key.py is provided in the parent directory to assist in generating a suitable key:
 python3 ../generate_secret_key.py
-# copy to Configuration.py in SECRET_KEY
-# add napalm to requirements.txt
-vi requirements.txt
-# Run the Upgrade Script
+# shows: ^TYRa9Dmh$*#Jqro8rnOr751^+%)PacczEl+r3Ve2BAzP_7mDU
+# Remote File Storage
+sudo sh -c "echo 'django-storages' >> /opt/netbox/local_requirements.txt"
+sudo sh -c "echo 'boto3' >> /opt/netbox/local_requirements.txt"
+sudo sh -c "echo 'sentry-sdk' >> /opt/netbox/local_requirements.txt"
+# Once NetBox has been configured, we're ready to proceed with the actual installation. We'll run the packaged upgrade script (upgrade.sh) to perform the following actions:
+# Create a Python virtual environment
+# Installs all required Python packages
+# Run database schema migrations (skip with --readonly)
+# Builds the documentation locally (for offline use)
+# Aggregate static resource files on disk
+sudo /opt/netbox/upgrade.sh
+systemctl daemon-reload
+# Note that Python 3.10 or later is required for NetBox v4.0 and later releases. If the default Python installation on your server is set to a lesser version, pass the path to the supported installation as an environment variable named PYTHON. (Note that the environment variable must be passed after the sudo command.)
+sudo PYTHON=/usr/bin/python3.12 /opt/netbox/upgrade.sh
 
+# Create a Super User
+source /opt/netbox/venv/bin/activate
+cd /opt/netbox/netbox
+python3 manage.py createsuperuser # u: supernetbox p: superpassword
+# Test the Application
+python3 manage.py runserver 0.0.0.0:8000 --insecure
+deactivate
+# install and configure gunicorn 
+# copy /opt/netbox/contrib/gunicorn.py to /opt/netbox/gunicorn.py. (We make a copy of this file rather than pointing to it directly to ensure that any local changes to it do not get overwritten during a future NetBox upgrade.)
+sudo cp /opt/netbox/contrib/gunicorn.py /opt/netbox/gunicorn.py
+# copy contrib/netbox.service and contrib/netbox-rq.service to the /etc/systemd/system/ directory and reload the systemd daemon.
+sudo cp -v /opt/netbox/contrib/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+# start the netbox and netbox-rq services and enable them to initiate at boot time
+sudo systemctl enable --now netbox netbox-rq
+systemctl status netbox.service
+# install and configure uWSGI 
+source /opt/netbox/venv/bin/activate
+pip3 install pyuwsgi
+# Once installed, add the package to local_requirements.txt to ensure it is re-installed during future rebuilds of the virtual environment:
+sudo sh -c "echo 'pyuwsgi' >> /opt/netbox/local_requirements.txt"
+# NetBox ships with a default configuration file for uWSGI. To use it, copy /opt/netbox/contrib/uwsgi.ini to /opt/netbox/uwsgi.ini
+sudo cp /opt/netbox/contrib/uwsgi.ini /opt/netbox/uwsgi.ini
+#  copy contrib/netbox.service and contrib/netbox-rq.service to the /etc/systemd/system/ directory
+sudo cp -v /opt/netbox/contrib/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+# The reference configuration assumes that gunicorn is in use, so we need to update it. Edit the netbox.service file to remove the line beginning with ExecStart=/opt/netbox/venv/bin/gunicorn and uncomment the line below it.
+sudo systemctl daemon-reload
+sudo systemctl enable --now netbox netbox-rq
+systemctl status netbox.service
+# HTTP Server Installation >> nginx
+# Obtain an SSL Certificate
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+-keyout /etc/ssl/private/netbox.key \
+-out /etc/ssl/certs/netbox.crt
+sudo apt install -y nginx
+# copy the nginx configuration file provided by NetBox to /etc/nginx/sites-available/netbox. Be sure to replace netbox.example.com with the domain name or IP address of your installation.
+sudo cp /opt/netbox/contrib/nginx.conf /etc/nginx/sites-available/netbox
+# Then, delete /etc/nginx/sites-enabled/default and create a symlink in the sites-enabled directory to the configuration file you just created.
+sudo rm /etc/nginx/sites-enabled/default
+sudo ln -s /etc/nginx/sites-available/netbox /etc/nginx/sites-enabled/netbox
+# estart the nginx service to use the new configuration.
+sudo systemctl restart nginx
 
+# /etc/nginx/sites-enabled/netbox includes:
+server {
+    listen [::]:443 ssl ipv6only=off;
 
+    # CHANGE THIS TO YOUR SERVER'S NAME
+    server_name ['*'];
+
+    ssl_certificate /etc/ssl/certs/netbox.crt;
+    ssl_certificate_key /etc/ssl/private/netbox.key;
+
+    client_max_body_size 25m;
+
+    location /static/ {
+        alias /opt/netbox/netbox/static/;
+    }
+
+    location / {
+        # Remove these lines if using uWSGI instead of Gunicorn
+        proxy_pass http://127.0.0.1:8001;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Uncomment these lines if using uWSGI instead of Gunicorn
+        # include uwsgi_params;
+        # uwsgi_pass  127.0.0.1:8001;
+        # uwsgi_param Host $host;
+        # uwsgi_param X-Real-IP $remote_addr;
+        # uwsgi_param X-Forwarded-For $proxy_add_x_forwarded_for;
+        # uwsgi_param X-Forwarded-Proto $http_x_forwarded_proto;
+
+    }
+}
+
+server {
+    # Redirect HTTP traffic to HTTPS
+    listen [::]:80 ipv6only=off;
+    server_name _;
+    return 301 https://$host$request_uri;
+}
 
 
 
